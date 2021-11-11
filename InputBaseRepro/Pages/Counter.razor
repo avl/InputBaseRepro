@@ -1,0 +1,126 @@
+@page "/counter"
+@using System.ComponentModel.DataAnnotations
+
+<PageTitle>Repro</PageTitle>
+
+<h1>Repro</h1>
+
+<div>
+    There are two items, 0 and 1.
+    At first we display item 0.
+</div>
+<br/>
+
+<EditForm @ref="TheEditForm" Model="TestModel">
+    <DataAnnotationsValidator></DataAnnotationsValidator>
+    Displaying item @_index;
+    @(Render())
+</EditForm>
+<br/>
+
+<div>
+    
+    Click this button to inject a validation failure for the first item: <br/>
+    <button class="btn btn-primary" @onclick="SetValidationFailureForFirstRow">Set validation failure</button><br/>
+    Note how the border turns red.
+</div>
+<br/>
+<div>
+    Then click this button to change so that the second item is displayed: <br/>
+    <button class="btn btn-primary" @onclick="Switch">Change which item is displayed</button><br/>
+    Note how the border is still red, although there is no validation failure for the second item. This is the bug. 
+    This is since the FieldIdentifier of InputBase does not change when SetParameters is called.<br/>
+    Creating the following component, and using it instead of InputBase makes it work again:
+    <pre>
+
+    public class FixedInputText : InputText
+    {
+        public override Task SetParametersAsync(ParameterView parameters)
+        {
+            var t = base.SetParametersAsync(parameters);
+            FieldIdentifier = FieldIdentifier.Create(ValueExpression);
+            return t;
+        }
+    }
+
+    </pre>
+</div>
+<br/>
+<div>
+    You can click this button to clear the validation failure.<br/>
+    <button class="btn btn-primary" @onclick="ClearValidationFailures">Clear validation failures</button><br/>
+
+</div>
+<div>
+    You can click this button to activate a bugfix.<br/>
+    <button class="btn btn-primary" @onclick="ActivateBugFix">Toggle Fix</button><br/>
+    Fix is active: @_useFix
+
+</div>
+
+
+
+@code {
+
+    int _index = 0;
+    bool _useFix = false;
+    public class Test
+    {
+        public string? PropertyA { get; set; }
+    }
+
+    public RenderFragment Render()
+    {
+        Test model = TestModel[_index];
+        if (_useFix)
+            return @<FixedInputText @bind-Value="@model.PropertyA"></FixedInputText>;
+        else
+            return @<InputText @bind-Value="@model.PropertyA"></InputText>;
+    }
+
+    public static Test[] TestModel = new Test[]
+    {
+        new Test()
+        {
+            PropertyA = "First item",
+        },
+        new Test()
+        {
+            PropertyA = "Second item",
+        }
+    };
+
+    private ValidationMessageStore _messages;
+
+    private void Switch()
+    {
+        
+        _index = (_index + 1) % 2;
+        StateHasChanged();
+    }
+
+    public EditForm TheEditForm { get; set; }
+
+    private void SetValidationFailureForFirstRow()
+    {
+        if (_messages == null)
+        {
+            _messages = new ValidationMessageStore(TheEditForm.EditContext);
+        }
+        var firstRow = TestModel[0];
+        _messages.Add(FieldIdentifier.Create(() => firstRow.PropertyA),"First element did not validate");
+    }
+
+    private void ClearValidationFailures()
+    {
+        if (_messages!=null) _messages.Clear();
+    }
+
+    private void ActivateBugFix()
+    {
+        _useFix = !_useFix;
+    }
+}
+
+
+
